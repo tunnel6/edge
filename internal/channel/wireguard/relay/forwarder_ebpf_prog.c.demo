@@ -1,0 +1,108 @@
+// SPDX-License-Identifier: GPL-2.0
+//
+// Semantic reference for forwarder_ebpf_prog.go, not a production build input.
+// The Go loader embeds configuration and assembles the BPF without clang.
+// This version uses Linux UAPI and libbpf headers (not hand-written skb offsets).
+//
+// WG ingress (raw IP) -> bpf_redirect(WG_IFINDEX, 0) -> WG egress -> peer
+// No veth, Ethernet header, or bpf_redirect_peer. The latter requires a peer
+// in a different network namespace; a same-namespace veth pair cannot work.
+//
+// Example debug build (supply the actual interface index and host-order config):
+// clang -O2 -g -target bpf -x c -DWG_IFINDEX=5 \
+//   -c forwarder_ebpf_prog.c.demo -o /tmp/yat_redirect.o
+// Attach the "tc" section as a direct-action ingress filter on the WG device.
+// It bypasses IP routing and netfilter FORWARD for matching packets.
+
+#include <linux/bpf.h>
+#include <linux/pkt_cls.h>
+#include <bpf/bpf_helpers.h>
+#include <bpf/bpf_endian.h>
+
+#ifndef WG_IFINDEX
+#define WG_IFINDEX 0 // set before loading
+#endif
+#ifndef NETWORK
+#define NETWORK 0x0a180000U // 10.24.0.0
+#endif
+#ifndef NETMASK
+#define NETMASK 0xffffff00U
+#endif
+#ifndef RELAY_IP
+#define RELAY_IP 0x0a180001U
+#endif
+#ifndef WG_MTU
+#define WG_MTU 1420
+#endif
+
+struct counters {
+    __u64 forwarded; // redirect submissions, not delivery confirmations
+    __u64 dropped;
+    __u64 errors;
+};
+
+struct {
+    __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
+    __uint(max_entries, 1);
+    __type(key, __u32);
+    __type(value, struct counters);
+} redirect_stats SEC(".maps");
+
+SEC("tc")
+int redirect_to_wireguard(struct __sk_buff *skb)
+{
+    unsigned char *ip = (void *)(long)skb->data;
+    void *end = (void *)(long)skb->data_end;
+    if ((void *)(ip + 20) > end || ip[0] != 0x45)
+        return TC_ACT_OK;
+    __u32 src = bpf_ntohl(*(__u32 *)(ip + 12));
+    __u32 dst = bpf_ntohl(*(__u32 *)(ip + 16));
+    if ((src & NETMASK) != NETWORK || (dst & NETMASK) != NETWORK ||
+        dst == RELAY_IP || dst >= 0xe0000000U)
+        return TC_ACT_OK;
+    if (NETMASK < 0xfffffffeU && (dst == NETWORK || dst == (NETWORK | ~NETMASK)))
+        return TC_ACT_OK;
+    if (ip[8] <= 1)
+        return TC_ACT_OK; // let the normal stack generate ICMP
+
+    int action = TC_ACT_SHOT;
+    int counter = 1;
+    __u16 len = bpf_ntohs(*(__u16 *)(ip + 2));
+    if (len < 20 || len > skb->len)
+        goto count;
+    if (len != skb->len || (WG_MTU != 0 && len > WG_MTU))
+        return TC_ACT_OK;
+
+    __u32 sum = 0;
+#pragma unroll
+    for (int i = 0; i < 20; i += 2)
+        sum += *(__u16 *)(ip + i);
+    sum = (sum & 0xffff) + (sum >> 16);
+    sum = (sum & 0xffff) + (sum >> 16);
+    if (sum != 0xffff)
+        goto count;
+
+    ip[8]--;
+    sum = bpf_ntohs(*(__u16 *)(ip + 10)) + 0x100;
+    sum = (sum & 0xffff) + (sum >> 16);
+    if (sum == 0xffff)
+        sum = 0;
+    *(__u16 *)(ip + 10) = bpf_htons(sum);
+
+    action = bpf_redirect(WG_IFINDEX, 0); // flags=0 means EGRESS
+    counter = action == TC_ACT_REDIRECT ? 0 : 2;
+count:;
+    __u32 key = 0;
+    struct counters *stats = bpf_map_lookup_elem(&redirect_stats, &key);
+    if (stats) {
+        if (counter == 0)
+            __sync_fetch_and_add(&stats->forwarded, 1);
+        else if (counter == 1)
+            __sync_fetch_and_add(&stats->dropped, 1);
+        else
+            __sync_fetch_and_add(&stats->errors, 1);
+    }
+    return action;
+}
+
+char LICENSE[] SEC("license") = "GPL";

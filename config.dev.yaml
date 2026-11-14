@@ -1,0 +1,81 @@
+node:
+  name: ""
+  id: ""
+  zone: "dev-zone"
+  type: "private"
+  public_address: ""  
+data_dir: "" # Defaults to the local Edge data directory
+
+tunnel:
+  listen: "127.0.0.1:9000"
+  max_sessions: 100
+  session_timeout: 5m
+  limits:
+    max_per_session: 5   # Maximum tunnel definitions per device; 0 means unlimited
+    max_total: 1000      # Maximum tunnel definitions for this Edge; 0 means unlimited
+  tls:
+    enabled: true               # Enable TLS for the tunnel service
+    ca: ""                      # Defaults to data_dir/root-ca.crt when empty
+    cert: ""                    # Defaults to data_dir/edge-tls.crt when empty
+    key: ""                     # Defaults to data_dir/edge-tls.key when empty
+
+log:
+  output: "file"   # console/file; server start defaults to file
+  level: ""        # debug, info, warn, error, fatal, or panic; empty uses the runtime default
+  file: "./certs/edge.log"
+
+proxy:
+  http:
+    enabled: true
+    port: 8080
+    https_port: 443  # Standard HTTPS port (avoid conflict with tunnel port)
+    addr: "127.0.0.1:8080"
+    timeout: 30s
+    buffer: "16K"
+    buffer_lock: false
+    eager_start: true
+
+  tcp:
+    enabled: true
+    port_min: 30000
+    port_max: 40000
+
+  udp:
+    enabled: true
+    port_min: 30000
+    port_max: 40000
+  
+  wireguard:
+    enabled: true
+    interface: "wg0"
+    subnet: "10.0.0.1/24"
+    interface_prefix: "wg-yat0"
+    listen_port_base: 58021
+    key_dir: ""
+    public_endpoint: ""
+    relay_enabled: true
+    forwarder_strategy: "kernel"   # kernel (recommended) | ebpf
+    # path_coordination enables the WG_PATH_* coordination protocol (disabled by default).
+    # Both peers must advertise the wg.path-coordination.v1 capability.
+    # path_coordination:
+    #   transaction_timeout: 30s          # Overall deadline for the negotiation gate; COMMIT is preserved after timeout
+    #   phases:
+    #     prepare: 1s                    # Wait for both peers to become READY
+    #     apply: 3s                      # Without transaction_timeout, the budget is prepare + apply
+    #   registry_members: 8
+    #   max_pairs: 8                     # Retained pair-context limit; when full, only the oldest final state is evicted
+    #   control_burst: 64                 # Maximum in-flight negotiations; one item per pair at a time
+    #   tick_interval: 400ms
+
+channel:
+  base_domain: ""                      # System domain (auto-assigned)
+  custom_domain: ""                    # Custom domain (optional, user's own domain)
+  alias_domain_policy: ""              # disabled/optional/required; empty defaults to optional
+  max_channels_per_user: 10
+  max_channels_per_session: 10
+  max_bandwidth_mbps: 100
+  max_total_channels: 1000
+
+  p2p:
+    enabled: false
+    udp_addr: ""

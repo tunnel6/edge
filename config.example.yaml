@@ -1,0 +1,121 @@
+node:
+  name: ""                             # Optional node name
+  id: ""                               # Optional node ID; loaded from data_dir/edge-id when empty
+  zone: "cn-east-1"
+  type: "private"  # public/private/shared
+  public_address: ""  # Public address in the form "IP:PORT" or "DOMAIN:PORT", e.g. "203.0.113.1:9000"
+
+data_dir: "" # Defaults to the local Edge data directory
+
+tunnel:
+  listen: "0.0.0.0:9000"
+  max_sessions: 1000
+  session_timeout: 5m
+  limits:
+    max_per_session: 5   # Maximum tunnel definitions per device; 0 means unlimited
+    max_total: 1000      # Maximum tunnel definitions for this Edge; 0 means unlimited
+  tls:
+    enabled: true  # Whether TLS is enabled for the tunnel service
+    ca: ""         # Defaults to data_dir/root-ca.crt when empty
+    cert: ""       # Defaults to data_dir/edge-tls.crt when empty
+    key: ""        # Defaults to data_dir/edge-tls.key when empty
+
+log:
+  output: "file"   # console/file; server start defaults to file
+  level: ""        # debug, info, warn, error, fatal, or panic; empty uses the runtime default
+  file: "./certs/edge.log"
+
+proxy:
+  http:
+    enabled: true
+    port: 80
+    https_port: 443
+    certificate_source: "dns01"          # dns01: manual TXT flow; upload: import wildcard PEM from paired Owner client
+    addr: ""                            # HTTP listen address; defaults to :<proxy.http.port> when empty
+    timeout: 30s
+    buffer: "16K"
+    buffer_lock: false
+    eager_start: false
+
+  tcp:
+    enabled: true
+    port_min: 30000
+    port_max: 40000
+
+  udp:
+    enabled: true
+    port_min: 30000
+    port_max: 40000
+  
+  wireguard:
+    enabled: true
+    interface: "wg0"
+    subnet: "10.0.0.1/24"
+    interface_prefix: "wg-yat0"
+    listen_port_base: 58021
+    key_dir: ""                         # Defaults to the WireGuard data directory when empty
+    public_endpoint: ""                 # Public endpoint advertised to peers; auto-detected when empty
+    relay_enabled: true                 # Enable traffic relay forwarding (observation is independent)
+    forwarder_strategy: "kernel"        # kernel (recommended) | ebpf (requires Linux and the ebpf build tag)
+    default_peer_rate: 0                # Guaranteed bandwidth per peer in bytes/sec; 0 means unlimited
+    default_peer_ceil: 0                # Burst ceiling per peer in bytes/sec; 0 means the same as rate
+
+    # -- Path Coordination (WG_PATH_* coordination protocol) --------------
+    #
+    # Overview:
+    #   Edge acts as the authoritative coordinator for path decisions
+    #   (auto/relay/direct) made by both clients. This resolves asymmetric
+    #   decisions in optional mode (for example, A selects direct while B
+    #   selects relay).
+    #
+    # Requirements:
+    #   1. Configure path_coordination on Edge (this section).
+    #   2. Both clients advertise the wg.path-coordination.v1 capability.
+    #
+    # Important:
+    #   - Enabling this feature takes over the network and permanently
+    #     disables the legacy session/observer system.
+    #   - Restart Edge after changing phases or resource budgets.
+    #
+    # Testing:
+    #   Enable it on a test network first, then roll it out to production.
+    #   Clients initiate probes and path switches; Edge executes requests
+    #   and confirms the result for both sides.
+    #
+    # path_coordination:
+    #   # -- Phase timeout budgets (required; time.Duration format) --------
+    #   # Both peers must become READY. After COMMIT, a timeout only releases
+    #   # the admission gate and preserves the decision for idempotent recovery.
+    #   transaction_timeout: 45s           # Overall deadline for the negotiation gate
+    #   phases:
+    #     prepare: 5s                      # Wait for both peers to become READY
+    #     apply: 5s                        # Without transaction_timeout, the budget is prepare + apply
+    #
+    #   # -- Global resource limits (required) -----------------------------
+    #   registry_members: 64               # Maximum number of registry members
+    #   max_pairs: 16                      # Retained pair-context memory limit, including final-state projections;
+    #                                      # when full, only the oldest final state is evicted
+    #   control_burst: 8                   # Maximum in-flight negotiations (WAITING_READY/APPLY);
+    #                                      # final states and repeated reports do not consume capacity
+    #
+    #   # -- Deadline maintenance (required; time.Duration format) ---------
+    #   tick_interval: 5s                  # Interval for the owner main-loop tick
+    #
+
+channel:
+  base_domain: ""                      # Required when proxy.http.enabled=true; e.g. files.example.com
+  custom_domain: ""                    # Custom domain (optional, user's own domain)
+  alias_domain_policy: ""              # disabled/optional/required; empty defaults to optional
+  max_channels_per_user: 10
+  max_channels_per_session: 10
+  max_bandwidth_mbps: 100
+  max_total_channels: 1000
+
+  p2p:
+    enabled: false                     # Overrides proxy.ice.enabled when set
+    udp_addr: ""                       # ICE UDP listen address; auto-enables P2P when non-empty
+
+# Standalone pairing configuration (mTLS tunnel mode)
+pair:
+  role: ""                             # owner or device; defaults to device
+  token: ""                            # Preconfigured one-time pairing token

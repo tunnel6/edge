@@ -1,0 +1,96 @@
+name: Build and Deploy
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - '*'
+
+env:
+  BINARY_NAME: edge
+  # Go build cache paths
+  GOPATH: /home/runner/go
+  GOCACHE: /home/runner/.cache/go-build
+
+jobs:
+  # ============================================
+  # Build Job - Multi-platform concurrent compilation using Matrix
+  # ============================================
+  build:
+    runs-on: ubuntu-latest
+    container:
+      image: goreleaser/goreleaser-cross:v1.24
+      options: --user root
+    strategy:
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+            cc: x86_64-linux-gnu-gcc
+          - goos: linux
+            goarch: arm64
+            cc: aarch64-linux-gnu-gcc
+          - goos: darwin
+            goarch: amd64
+            cc: o64-clang
+          - goos: darwin
+            goarch: arm64
+            cc: oa64-clang
+          - goos: windows
+            goarch: amd64
+            cc: x86_64-w64-mingw32-gcc # Adjusted based on standard goreleaser-cross targets
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # Configure Go caching (replaces GitLab's local /cache mount)
+      - name: Cache Go modules and build outputs
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ env.GOPATH }}/pkg/mod
+            ${{ env.GOCACHE }}
+          key: ${{ runner.os }}-go-${{ matrix.goos }}-${{ matrix.goarch }}-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-${{ matrix.goos }}-${{ matrix.goarch }}-
+
+      - name: Build Binary
+        shell: bash
+        run: |
+          # Get version: use tag if triggered by tag, otherwise fallback to 1.3.0+sha
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            VERSION="${GITHUB_REF#refs/tags/}"
+          else
+            VERSION="1.3.0+$(git rev-parse --short=8 HEAD)"
+          fi
+          
+          LDFLAGS="-X 'icool.io/yat/edge/pkg/config.Version=${VERSION}' -X 'icool.io/yat/edge/pkg/config.Build=$(TZ='Asia/Shanghai' date +%FT%T%z)' -X 'icool.io/yat/edge/pkg/config.Commit=$(git rev-parse --short=8 HEAD || echo unknown)'"
+
+          echo "Building ${BINARY_NAME} for ${{ matrix.goos }}/${{ matrix.goarch }}..."
+
+          # Set output filename
+          OUTPUT_NAME="${BINARY_NAME}-${{ matrix.goos }}-${{ matrix.goarch }}"
+          if [ "${{ matrix.goos }}" = "windows" ]; then
+            OUTPUT_NAME="${OUTPUT_NAME}.exe"
+          fi
+
+          mkdir -p dist
+
+          # Build with ebpf tag
+          CGO_ENABLED=1 GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} CC=${{ matrix.cc }} \
+            go build -ldflags "${LDFLAGS}" -tags "ebpf" -o "dist/${OUTPUT_NAME}" .
+
+          # Generate checksums
+          cd dist
+          sha256sum "${OUTPUT_NAME}" > "${OUTPUT_NAME}.sha256"
+
+      # Upload artifacts (corresponds to GitLab artifacts)
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/
+          retention-days: 7

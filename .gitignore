@@ -1,0 +1,56 @@
+# Binaries
+edge
+yat-edge
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Runtime files
+pid
+pid.sock
+*.pid
+*.sock
+
+# Test binaries
+*.test
+
+# Output of the go coverage tool
+*.out
+
+# Certificates (if generated locally)
+certs/*.crt
+certs/*.key
+certs/*.csr
+certs/*.srl
+!certs/README.md
+
+# Logs
+logs/
+*.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build artifacts
+build/
+dist/
+
+pid
+*.sock
+RUNNING
+.edge_startup.json
+
+base-domain
+edge-id
+.cache/
+vendor/
