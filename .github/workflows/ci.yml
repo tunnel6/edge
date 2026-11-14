@@ -46,6 +46,12 @@ jobs:
         with:
           fetch-depth: 0
 
+      # The container user differs from the repository owner, so Git refuses
+      # to operate on the workspace until it is explicitly marked as safe.
+      - name: Mark repository as safe
+        shell: bash
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
       # Configure Go caching (replaces GitLab's local /cache mount)
       - name: Cache Go modules and build outputs
         uses: actions/cache@v4
