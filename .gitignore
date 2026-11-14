@@ -54,3 +54,4 @@ base-domain
 edge-id
 .cache/
 vendor/
+.DS_Store
