@@ -67,7 +67,7 @@ jobs:
             VERSION="1.3.0+$(git rev-parse --short=8 HEAD)"
           fi
           
-          LDFLAGS="-X 'icool.io/yat/edge/pkg/config.Version=${VERSION}' -X 'icool.io/yat/edge/pkg/config.Build=$(TZ='Asia/Shanghai' date +%FT%T%z)' -X 'icool.io/yat/edge/pkg/config.Commit=$(git rev-parse --short=8 HEAD || echo unknown)'"
+          LDFLAGS="-X 'icool.io/yat/edge/pkg/config.Version=${VERSION}' -X 'icool.io/yat/edge/pkg/config.Build=$(date +%FT%T%z)' -X 'icool.io/yat/edge/pkg/config.Commit=$(git rev-parse --short=8 HEAD || echo unknown)'"
 
           echo "Building ${BINARY_NAME} for ${{ matrix.goos }}/${{ matrix.goarch }}..."
 
